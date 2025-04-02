@@ -10,6 +10,7 @@ from . import gmail
 import json
 from . import toolhandler
 import base64
+import logging
 
 def decode_base64_data(file_data):
     standard_base64_data = file_data.replace("-", "+").replace("_", "/")
@@ -185,6 +186,7 @@ class CreateDraftToolHandler(toolhandler.ToolHandler):
         return Tool(
             name=self.name,
             description="""Creates a draft email message from scratch in Gmail with specified recipient, subject, body, and optional CC recipients.
+            You can also choose to send the email immediately instead of saving it as a draft.
             
             Do NOT use this tool when you want to draft or send a REPLY to an existing message. This tool does NOT include any previous message content. Use the reply_gmail_email tool
             with send=False instead."
@@ -211,6 +213,11 @@ class CreateDraftToolHandler(toolhandler.ToolHandler):
                             "type": "string"
                         },
                         "description": "Optional list of email addresses to CC"
+                    },
+                    "send": {
+                        "type": "boolean",
+                        "description": "If true, sends the email immediately. If false or not provided, saves as draft.",
+                        "default": False
                     }
                 },
                 "required": ["to", "subject", "body", toolhandler.USER_ID_ARG]
@@ -226,25 +233,27 @@ class CreateDraftToolHandler(toolhandler.ToolHandler):
         if not user_id:
             raise RuntimeError(f"Missing required argument: {toolhandler.USER_ID_ARG}")
         gmail_service = gmail.GmailService(user_id=user_id)
-        draft = gmail_service.create_draft(
+        result = gmail_service.create_draft(
             to=args["to"],
             subject=args["subject"],
             body=args["body"],
-            cc=args.get("cc")
+            cc=args.get("cc"),
+            send=args.get("send", False)
         )
 
-        if draft is None:
+        if result is None:
+            action = "send" if args.get("send", False) else "create draft"
             return [
                 TextContent(
                     type="text",
-                    text="Failed to create draft email"
+                    text=f"Failed to {action} email"
                 )
             ]
 
         return [
             TextContent(
                 type="text",
-                text=json.dumps(draft, indent=2)
+                text=json.dumps(result, indent=2)
             )
         ]
 
@@ -336,7 +345,9 @@ class ReplyEmailToolHandler(toolhandler.ToolHandler):
         gmail_service = gmail.GmailService(user_id=user_id)
         
         # First get the original message to extract necessary information
-        original_message = gmail_service.get_email_by_id(args["original_message_id"])
+        original_message, _ = gmail_service.get_email_by_id_with_attachments(args["original_message_id"])
+        # error output
+        # logging.info(f"Original message: {original_message}")
         if original_message is None:
             return [
                 TextContent(

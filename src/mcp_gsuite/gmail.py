@@ -210,19 +210,20 @@ class GmailService():
             logging.error(traceback.format_exc())
             return None, []
         
-    def create_draft(self, to: str, subject: str, body: str, cc: list[str] | None = None) -> dict | None:
+    def create_draft(self, to: str, subject: str, body: str, cc: list[str] | None = None, send: bool = False) -> dict | None:
         """
-        Create a draft email message.
+        Create a draft email message or send it immediately.
         
         Args:
             to (str): Email address of the recipient
             subject (str): Subject line of the email
             body (str): Body content of the email
             cc (list[str], optional): List of email addresses to CC
+            send (bool): If True, sends the email immediately. If False, saves as draft.
             
         Returns:
-            dict: Draft message data including the draft ID if successful
-            None: If creation fails
+            dict: Draft message data or sent message data if successful
+            None: If operation fails
         """
         try:
             # Create message body
@@ -244,17 +245,27 @@ class GmailService():
             # Encode the message
             raw_message = base64.urlsafe_b64encode(mime_message.as_bytes()).decode('utf-8')
             
-            # Create the draft
-            draft = self.service.users().drafts().create(
-                userId='me',
-                body={
-                    'message': {
-                        'raw': raw_message
-                    }
-                }
-            ).execute()
+            # Create message body for API
+            message_body = {
+                'raw': raw_message
+            }
             
-            return draft
+            if send:
+                # Send the email immediately
+                result = self.service.users().messages().send(
+                    userId='me',
+                    body=message_body
+                ).execute()
+            else:
+                # Save as draft
+                result = self.service.users().drafts().create(
+                    userId='me',
+                    body={
+                        'message': message_body
+                    }
+                ).execute()
+            
+            return result
             
         except Exception as e:
             logging.error(f"Error creating draft: {str(e)}")
@@ -301,6 +312,10 @@ class GmailService():
             to_address = original_message.get('from')
             if not to_address:
                 raise ValueError("Could not determine original sender's address")
+            
+            # parse to_address like this: '"罗华一" <huayi.luo@aminer.cn>'
+            if '<' in to_address and '>' in to_address:
+                to_address = to_address.split('<')[-1].split('>')[0].strip()
             
             subject = original_message.get('subject', '')
             if not subject.lower().startswith('re:'):
